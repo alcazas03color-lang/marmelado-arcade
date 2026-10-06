@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>MARMELADO ARCADE — 5 игр</title>
+<style>
+  :root{--bg:#120d20;--panel:#211735;--pink:#ff4f9a;--yellow:#ffd84d;--cyan:#48e0ff;--green:#64e58a;--text:#fff5fb}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;min-height:100%;background:#0b0812;color:var(--text);font-family:monospace}
+  body{display:flex;justify-content:center;overflow-x:hidden;overscroll-behavior:none;touch-action:manipulation}
+  #app{width:min(1100px,100%);padding:14px}
+  .screen{display:none}.screen.active{display:block}
+  .panel{background:var(--panel);border:4px solid #000;box-shadow:8px 8px 0 #000;padding:18px}
+  h1,h2{margin:0 0 12px;text-transform:uppercase;letter-spacing:2px}
+  h1{font-size:clamp(24px,5vw,48px);color:var(--pink);text-shadow:4px 4px #000}
+  h2{font-size:clamp(18px,4vw,30px);color:var(--yellow)}
+  p{line-height:1.45}
+  button{font:inherit;font-weight:900;color:#130b1b;background:var(--yellow);border:4px solid #000;box-shadow:5px 5px 0 #000;padding:12px 14px;cursor:pointer;margin:5px}
+  button:active{transform:translate(3px,3px);box-shadow:2px 2px 0 #000}
+  button.alt{background:var(--cyan)} button.good{background:var(--green)} button.pink{background:var(--pink)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+  .gamecard{padding:14px;background:#302148;border:3px solid #000;min-height:185px;display:flex;flex-direction:column;justify-content:space-between}
+  .gamecard .emoji{font-size:40px}
+  .small{font-size:12px;opacity:.85}
+  .code{font-size:clamp(16px,4vw,28px);color:var(--green);background:#050408;border:3px dashed var(--green);padding:12px;text-align:center;letter-spacing:1px;word-break:break-all}
+  .topbar{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap}
+  .stats{display:flex;gap:8px;flex-wrap:wrap}.stat{background:#050408;border:3px solid #000;padding:8px 10px}
+  canvas{display:block;width:100%;max-width:900px;margin:0 auto;background:#090711;border:5px solid #000;image-rendering:pixelated;image-rendering:crisp-edges;touch-action:none}
+  .controls{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .controls button{min-width:58px;font-size:20px}
+  #modal{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center;padding:20px;z-index:20}
+  #modal.show{display:flex}.modalbox{max-width:520px;width:100%;background:#261a3d;border:5px solid #000;box-shadow:9px 9px 0 #000;padding:22px;text-align:center}
+  .notice{border-left:5px solid var(--cyan);padding:10px 12px;background:#171025}
+  .footer{text-align:center;opacity:.6;font-size:11px;margin:18px 0}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="app">
+  <section id="menu" class="screen active">
+    <div class="panel">
+      <h1>🍬 MARMELADO ARCADE</h1>
+      <p>Пять пиксельных испытаний для мармеладного бота. Собирай очки, проходи уровни и открывай секретные промокоды.</p>
+      <div class="notice">Прогресс хранится прямо в браузере. Каждый код выдаётся только после выполнения своей цели.</div>
+      <br>
+      <div id="cards" class="grid"></div>
+      <div style="text-align:center;margin-top:18px">
+        <button class="pink" onclick="resetProgress()">Сбросить прогресс</button>
+      </div>
+    </div>
+    <div class="footer">MARMELADO ARCADE • HTML5 • original pixel visuals</div>
+  </section>
+
+  <section id="game" class="screen">
+    <div class="topbar">
+      <button class="alt" onclick="showMenu()">← МЕНЮ</button>
+      <div id="gameTitle"></div>
+      <div class="stats" id="stats"></div>
+    </div>
+    <canvas id="canvas" width="900" height="520"></canvas>
+    <div id="hint" class="small" style="text-align:center;margin:8px"></div>
+    <div class="controls" id="controls"></div>
+  </section>
+</div>
+
+<div id="modal">
+  <div class="modalbox">
+    <h2 id="modalTitle">ПРОМОКОД ОТКРЫТ!</h2>
+    <p id="modalText"></p>
+    <div id="modalCode" class="code"></div>
+    <button class="good" onclick="closeModal()">Продолжить</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+const canvas=document.getElementById("canvas"),ctx=canvas.getContext("2d");
+ctx.imageSmoothingEnabled=false;
+const W=canvas.width,H=canvas.height;
+const games=[
+ {id:"wolf",icon:"🧺",name:"Мармеладный ловец",desc:"Лови падающие мармеладные яйца корзиной.",goal:"100 яиц",code:"WOLFMARMGME"},
+ {id:"snake",icon:"🐍",name:"Marmalade Snake",desc:"Съешь 30 мармеладок и не врежься.",goal:"30 мармеладок",code:"30TIMESMRMI"},
+ {id:"space",icon:"🚀",name:"Marmelado Space",desc:"Вид сверху: укрытия, враги и 3 уровня с боссом.",goal:"3 уровня",code:"COMRADEMARMELADO"},
+ {id:"maze",icon:"🟡",name:"Marmalade Maze",desc:"Собирай мармеладки в лабиринте и уходи от врагов.",goal:"3 уровня",code:"PACMARM"},
+ {id:"dino",icon:"🦖",name:"Dino for Marmalade",desc:"Беги, перепрыгивай препятствия и доберись до стола.",goal:"3 000 очков + стол",code:"DINOCOMINGFORMARMI"}
+];
+let save=JSON.parse(localStorage.getItem("marmelado_arcade")||"{}");
+function persist(){localStorage.setItem("marmelado_arcade",JSON.stringify(save));}
+function isWon(id){return !!save[id]}
+function showMenu(){
+  stopGame(); document.querySelectorAll(".screen").forEach(x=>x.classList.remove("active"));
+  document.getElementById("menu").classList.add("active"); renderCards();
+}
+function renderCards(){
+ const c=document.getElementById("cards"); c.innerHTML="";
+ games.forEach(g=>{
+   const d=document.createElement("div");d.className="gamecard";
+   d.innerHTML=`<div><div class="emoji">${g.icon}</div><h2>${g.name}</h2><p>${g.desc}</p><div class="small">ЦЕЛЬ: ${g.goal}</div></div>
+   <button class="${isWon(g.id)?"good":""}" onclick="startGame('${g.id}')">${isWon(g.id)?"✓ КОД ОТКРЫТ":"ИГРАТЬ"}</button>`;
+   c.appendChild(d);
+ });
+}
+function resetProgress(){save={};persist();renderCards();alert("Прогресс сброшен.");}
+function showCode(g){
+ save[g.id]=true;persist();
+ document.getElementById("modalText").textContent="Цель выполнена! Твой секретный промокод:";
+ document.getElementById("modalCode").textContent=g.code;
+ document.getElementById("modal").classList.add("show");
+}
+function closeModal(){document.getElementById("modal").classList.remove("show")}
+function px(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h))}
+function text(t,x,y,size=18,c="#fff"){ctx.fillStyle=c;ctx.font=`bold ${size}px monospace`;ctx.fillText(t,x,y)}
+function bg(stars=true){
+ ctx.fillStyle="#090711";ctx.fillRect(0,0,W,H);
+ if(stars) for(let i=0;i<45;i++){let x=(i*137+53)%W,y=(i*71+19)%H;px(x,y,2,2,i%5?"#51446c":"#fff")}
+}
+function keySetup(){keys={};window.onkeydown=e=>{keys[e.key.toLowerCase()]=true; if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key))e.preventDefault()};window.onkeyup=e=>keys[e.key.toLowerCase()]=false}
+let keys={},gameLoop=null,current=null;
+function stopGame(){if(gameLoop)cancelAnimationFrame(gameLoop);gameLoop=null;window.onkeydown=null;window.onkeyup=null;canvas.ontouchstart=null;canvas.ontouchend=null;keys={};current=null}
+function startGame(id){
+ closeModal(); stopGame(); current=games.find(g=>g.id===id);
+ document.querySelectorAll(".screen").forEach(x=>x.classList.remove("active"));document.getElementById("game").classList.add("active");
+ document.getElementById("gameTitle").innerHTML=`<h2>${current.icon} ${current.name}</h2>`;
+ document.getElementById("hint").textContent="";
+ document.getElementById("controls").innerHTML="";
+ if(id==="wolf")wolfGame(); if(id==="snake")snakeGame(); if(id==="space")spaceGame(); if(id==="maze")mazeGame(); if(id==="dino")dinoGame();
+}
+
+/* 1. Falling-object basket game */
+function wolfGame(){
+ keySetup();let score=0,lives=3,t=0,items=[],spawnAcc=0,last=performance.now(),player={x:W/2,y:H-75,w:105,h:25};
+ document.getElementById("hint").textContent="← → / A D — двигай корзину. Одно пойманное яйцо = 1 очко. 100 очков — промокод.";
+ addControls([["◀","ArrowLeft"],["▶","ArrowRight"]]);
+ function spawn(){items.push({x:30+Math.random()*(W-60),y:-30,v:2.15+Math.random()*.55})}
+ function drawBasket(){px(player.x,player.y,player.w,10,"#ff4f9a");px(player.x+8,player.y+10,player.w-16,15,"#c72f75");for(let i=0;i<5;i++)px(player.x+12+i*18,player.y-4,10,7,"#ffd84d")}
+ function loop(now){
+  let dt=now-last;last=now;t++;spawnAcc+=dt;
+  if(spawnAcc>=2000){spawnAcc-=2000;spawn()}
+  if(keys.arrowleft||keys.a)player.x-=6;if(keys.arrowright||keys.d)player.x+=6;
+  player.x=Math.max(0,Math.min(W-player.w,player.x));
+  items.forEach(o=>o.y+=o.v*dt/16.67);
+  for(let i=items.length-1;i>=0;i--){let o=items[i];
+   if(o.y>player.y-15&&o.y<player.y+35&&o.x>player.x-10&&o.x<player.x+player.w){score++;items.splice(i,1)}
+   else if(o.y>H+20){lives--;items.splice(i,1)}
+  }
+  bg(false);items.forEach(o=>{px(o.x-13,o.y-16,26,32,"#ffd84d");px(o.x-8,o.y-12,16,24,"#ff4f9a");px(o.x-3,o.y-6,6,6,"#fff5fb")});
+  drawBasket();text("MARMELADE CATCH",20,35,22,"#ff4f9a");text("Яйца: "+score+"/100",20,63,18);text("♥ "+lives,760,35,20,"#ff4f9a");
+  if(score>=100&&!isWon("wolf")){showCode(games[0]);return}
+  if(lives<=0){text("ИГРА ОКОНЧЕНА — ENTER ДЛЯ РЕСТАРТА",245,260,20,"#ffd84d");if(keys.enter){keys.enter=false;wolfGame();return}}
+  gameLoop=requestAnimationFrame(loop)
+ }loop(performance.now());
+}
+
+/* 2. Snake */
+function snakeGame(){
+ keySetup();let cell=26,cols=Math.floor(W/cell),rows=Math.floor(H/cell),snake=[{x:8,y:9},{x:7,y:9},{x:6,y:9}],dir={x:1,y:0},next={x:1,y:0},food=randomFood(),eaten=0,acc=0,last=performance.now();
+ document.getElementById("hint").textContent="Стрелки / WASD — направление. На смартфоне нажимай большие кнопки снизу.";
+ addControls([]);
+ function randomFood(){let f;do{f={x:Math.floor(Math.random()*cols),y:Math.floor(Math.random()*rows)}}while(snake.some(s=>s.x===f.x&&s.y===f.y));return f}
+ function setDir(x,y){if(dir.x+x!==0||dir.y+y!==0)next={x,y}}
+ window.onkeydown=e=>{let k=e.key.toLowerCase();if(k==="arrowup"||k==="w")setDir(0,-1);if(k==="arrowdown"||k==="s")setDir(0,1);if(k==="arrowleft"||k==="a")setDir(-1,0);if(k==="arrowright"||k==="d")setDir(1,0);if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key))e.preventDefault()};
+ function makeButton(label,fn){let b=document.createElement("button");b.textContent=label;b.className="alt";b.type="button";b.addEventListener("pointerdown",e=>{e.preventDefault();fn()},{passive:false});document.getElementById("controls").appendChild(b)}
+ makeButton("▲",()=>setDir(0,-1));makeButton("◀",()=>setDir(-1,0));makeButton("▼",()=>setDir(0,1));makeButton("▶",()=>setDir(1,0));
+ function loop(now){
+   let dt=now-last;last=now;acc+=dt;
+   if(acc>=110){acc-=110;dir=next;
+     let h={x:snake[0].x+dir.x,y:snake[0].y+dir.y};
+     if(h.x<0||h.x>=cols||h.y<0||h.y>=rows||snake.some(s=>s.x===h.x&&s.y===h.y)){snake=[{x:8,y:9},{x:7,y:9},{x:6,y:9}];dir={x:1,y:0};next=dir;eaten=0}
+     else{snake.unshift(h);if(h.x===food.x&&h.y===food.y){eaten++;food=randomFood()}else snake.pop()}
+   }
+   ctx.fillStyle="#0b0a10";ctx.fillRect(0,0,W,H);
+   for(let x=0;x<cols;x++)for(let y=0;y<rows;y++)if((x+y)%2===0)px(x*cell,y*cell,cell,cell,"#0e0c15");
+   px(food.x*cell+5,food.y*cell+5,16,16,"#ff4f9a");px(food.x*cell+8,food.y*cell+2,10,7,"#ffd84d");
+   snake.forEach((q,i)=>{px(q.x*cell+2,q.y*cell+2,cell-4,cell-4,i?"#64e58a":"#b6ff70");if(i===0){px(q.x*cell+7,q.y*cell+7,5,5,"#000");px(q.x*cell+17,q.y*cell+7,5,5,"#000")}});
+   text("MARMI SNAKE",18,25,18,"#ff4f9a");text("Съедено: "+eaten+"/30",18,48,16);
+   if(eaten>=30&&!isWon("snake")){showCode(games[1]);return}
+   gameLoop=requestAnimationFrame(loop);
+ }gameLoop=requestAnimationFrame(loop);
+}
+
+/* 3. Side-scrolling space shooter */
+function spaceGame(){
+ keySetup();let level=1,shots=[],enemyShots=[],enemies=[],covers=[],particles=[],player={x:90,y:H/2,r:12},cool=0,spawned=false,last=performance.now(),enemyTimer=0,enemyMoveAcc=0,boss=null,bossState=null;
+ document.getElementById("hint").textContent="WASD / стрелки — движение. ПРОБЕЛ — огонь. Прячься за укрытиями.";
+ addControls([["▲","ArrowUp"],["▼","ArrowDown"],["◀","ArrowLeft"],["▶","ArrowRight"],["🔥"," "]]);
+ function makeCovers(){covers=[{x:260,y:130,w:95,h:24,alive:true},{x:260,y:365,w:95,h:24,alive:true},{x:500,y:120,w:95,h:24,alive:true},{x:500,y:380,w:95,h:24,alive:true},{x:700,y:245,w:75,h:30,alive:true}]}
+ function startLevel(){
+   shots=[];enemyShots=[];enemies=[];particles=[];spawned=false;enemyTimer=0;cool=0;boss=null;bossState=null;makeCovers();
+   if(level<3){let n=level===1?5:5;for(let i=0;i<n;i++)enemies.push({x:650+(i%3)*75,y:75+(i%3)*125+Math.floor(i/3)*70,r:level===2?19:15,hp:level===2?3:1,maxHp:level===2?3:1,c:"#"+(level===2?"e84b5a":"b95cff"),reload:900+Math.random()*1500,blink:0})}
+   else{boss={cx:500,cy:260,ang:0,r:38,hp:30,maxHp:30};bossState={type:"none",timer:0,cooldown:1300,missileTimer:5000,burstTimer:8000,laserTimer:0,laserAngle:0}}
+ }
+ function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+ function blockedLine(x1,y1,x2,y2){
+   for(const c of covers)if(c.alive){
+     let steps=Math.ceil(Math.hypot(x2-x1,y2-y1)/8);
+     for(let i=1;i<steps;i++){let t=i/steps,x=x1+(x2-x1)*t,y=y1+(y2-y1)*t;if(x>c.x&&x<c.x+c.w&&y>c.y&&y<c.y+c.h)return true}
+   }return false
+ }
+ function hitCover(x,y){for(const c of covers)if(c.alive&&x>c.x&&x<c.x+c.w&&y>c.y&&y<c.y+c.h)return c;return null}
+ function shootEnemy(e){if(blockedLine(e.x,e.y,player.x,player.y))return;let a=Math.atan2(player.y-e.y,player.x-e.x);enemyShots.push({x:e.x,y:e.y,vx:Math.cos(a)*2.1,vy:Math.sin(a)*2.1,r:5});e.reload=5000;e.blink=900}
+ function fire(){if(cool<=0){shots.push({x:player.x+15,y:player.y,vx:8,vy:0,r:4});cool=230}}
+ function boom(x,y){for(let i=0;i<8;i++)particles.push({x,y,vx:(Math.random()-.5)*4,vy:(Math.random()-.5)*4,life:18})}
+ function playerHit(){player.x=90;player.y=H/2}
+ function bossDamage(){if(boss)boss.hp--;if(boss&&boss.hp<=0&&!isWon("space")){showCode(games[2]);return true}return false}
+ startLevel();
+ function loop(now){
+  let dt=Math.min(40,now-last);last=now;
+  if(keys.arrowup||keys.w)player.y-=3.8;if(keys.arrowdown||keys.s)player.y+=3.8;if(keys.arrowleft||keys.a)player.x-=3.8;if(keys.arrowright||keys.d)player.x+=3.8;
+  player.x=Math.max(18,Math.min(W-18,player.x));player.y=Math.max(45,Math.min(H-18,player.y));
+  if(keys[" "])fire();cool-=dt;
+  shots.forEach(s=>{s.x+=s.vx;s.y+=s.vy});
+  enemyShots.forEach(s=>{s.x+=s.vx;s.y+=s.vy});
+  particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.life--});particles=particles.filter(p=>p.life>0);
+  if(level<3){
+    enemyTimer+=dt;enemyMoveAcc+=dt;
+    enemies.forEach(e=>{
+      e.reload-=dt;if(e.reload<=0){shootEnemy(e);e.reload=5000}
+      if(e.blink>0)e.blink-=dt;
+    });
+    // Обычные враги делают один небольшой шаг раз в 3 секунды.
+    if(enemyMoveAcc>=3000){
+      enemyMoveAcc-=3000;
+      enemies.forEach(e=>{
+        const dx=player.x-e.x,dy=player.y-e.y;
+        const len=Math.hypot(dx,dy)||1;
+        const step=34;
+        const nx=e.x+(dx/len)*step,ny=e.y+(dy/len)*step;
+        if(nx>20&&nx<W-20&&ny>55&&ny<H-20&&!hitCover(nx,ny)){e.x=nx;e.y=ny}
+      });
+    }
+    for(let i=shots.length-1;i>=0;i--){let s=shots[i],removed=false;
+      for(let j=enemies.length-1;j>=0;j--){let e=enemies[j];if(Math.hypot(s.x-e.x,s.y-e.y)<e.r+5){e.hp--;shots.splice(i,1);boom(e.x,e.y);removed=true;if(e.hp<=0)enemies.splice(j,1);break}}
+      if(removed)continue;
+      let c=hitCover(s.x,s.y);if(c){shots.splice(i,1)}
+    }
+    if(enemies.length===0){if(level<3){level++;startLevel()}else{}}
+  }else{
+    boss.ang+=dt/1600;
+    boss.x=boss.cx+Math.cos(boss.ang)*170;boss.y=boss.cy+Math.sin(boss.ang)*120;
+    bossState.cooldown-=dt;bossState.missileTimer-=dt;bossState.burstTimer-=dt;
+    if(bossState.type==="laser"){bossState.laserTimer-=dt;bossState.laserAngle+=dt/900;if(bossState.laserTimer<=0)bossState.type="none"}
+    if(bossState.cooldown<=0&&bossState.type==="none"){bossState.type="laser";bossState.laserTimer=4000;bossState.cooldown=8500}
+    if(bossState.missileTimer<=0){bossState.missileTimer=11500;let alive=covers.filter(c=>c.alive);if(alive.length){let c=alive[Math.floor(Math.random()*alive.length)];c.target=true;bossState.missile={x:boss.x,y:boss.y,c}}}
+    if(bossState.burstTimer<=0){bossState.burstTimer=10000;for(let i=0;i<18;i++){let a=i*Math.PI*2/18;enemyShots.push({x:boss.x,y:boss.y,vx:Math.cos(a)*1.35,vy:Math.sin(a)*1.35,r:5})}}
+    for(let i=shots.length-1;i>=0;i--){let s=shots[i];if(Math.hypot(s.x-boss.x,s.y-boss.y)<boss.r+6){shots.splice(i,1);boom(boss.x,boss.y);if(bossDamage())return}}
+    if(bossState.missile){let m=bossState.missile,dx=m.c.x+m.c.w/2-m.x,dy=m.c.y+m.c.h/2-m.y,d=Math.hypot(dx,dy);if(d>8){m.x+=dx/d*2.5;m.y+=dy/d*2.5}else{m.c.alive=false;bossState.missile=null}}
+    if(bossState.type==="laser"){
+      let lx=Math.cos(bossState.laserAngle),ly=Math.sin(bossState.laserAngle);
+      let cross=Math.abs((player.x-boss.x)*ly-(player.y-boss.y)*lx);
+      let forward=(player.x-boss.x)*lx+(player.y-boss.y)*ly;
+      if(forward>0&&cross<10&&!blockedLine(boss.x,boss.y,player.x,player.y))playerHit();
+    }
+  }
+  // Enemy bullets and cover collision
+  for(let i=enemyShots.length-1;i>=0;i--){let s=enemyShots[i],c=hitCover(s.x,s.y);if(c){enemyShots.splice(i,1);continue}if(Math.hypot(s.x-player.x,s.y-player.y)<s.r+10){enemyShots.splice(i,1);playerHit();continue}if(s.x<-20||s.x>W+20||s.y<-20||s.y>H+20)enemyShots.splice(i,1)}
+  for(let i=shots.length-1;i>=0;i--){let s=shots[i],c=hitCover(s.x,s.y);if(c)shots.splice(i,1)}
+  ctx.fillStyle="#10131b";ctx.fillRect(0,0,W,H);
+  // subtle arena grid
+  for(let x=0;x<W;x+=40)px(x,40,1,H-40,"#202533");for(let y=40;y<H;y+=40)px(0,y,W,1,"#202533");
+  covers.forEach(c=>{if(c.alive){px(c.x,c.y,c.w,c.h,"#46505c");px(c.x+6,c.y+6,c.w-12,c.h-12,"#303741");if(c.target)px(c.x-4,c.y-4,c.w+8,c.h+8,"#ff4f9a")}});
+  enemies.forEach(e=>{let blink=e.blink>0&&Math.floor(e.blink/100)%2===0;if(!blink){px(e.x-e.r,e.y-e.r,e.r*2,e.r*2,e.c);px(e.x-7,e.y-5,5,5,"#fff");px(e.x+2,e.y-5,5,5,"#fff")}if(e.maxHp>1){px(e.x-20,e.y-e.r-8,40,4,"#000");px(e.x-20,e.y-e.r-8,40*(e.hp/e.maxHp),4,"#ff4f9a")}});
+  if(boss){px(boss.x-boss.r,boss.y-boss.r,boss.r*2,boss.r*2,"#d42e48");px(boss.x-25,boss.y-25,50,50,"#7f1d2d");for(let i=0;i<8;i++){let a=i*Math.PI/4+boss.ang;px(boss.x+Math.cos(a)*boss.r,boss.y+Math.sin(a)*boss.r,7,7,"#ff7180")}px(350,18,300,10,"#000");px(350,18,300*(boss.hp/30),10,"#ff4f9a");
+    if(bossState.type==="laser"){let lx=Math.cos(bossState.laserAngle),ly=Math.sin(bossState.laserAngle);ctx.save();ctx.strokeStyle="#ff355f";ctx.lineWidth=7;ctx.beginPath();ctx.moveTo(boss.x,boss.y);ctx.lineTo(boss.x+lx*1000,boss.y+ly*1000);ctx.stroke();ctx.restore()}
+    if(bossState.missile){px(bossState.missile.x-7,bossState.missile.y-7,14,14,"#ffd84d")}
+  }
+  px(player.x-10,player.y-10,20,20,"#48e0ff");px(player.x+7,player.y-3,10,6,"#ffd84d");
+  shots.forEach(s=>px(s.x-4,s.y-2,8,4,"#fff"));enemyShots.forEach(s=>px(s.x-4,s.y-4,8,8,"#ff7180"));particles.forEach(p=>px(p.x,p.y,4,4,"#ffd84d"));
+  text("MARMELADO SPACE",18,25,18,"#48e0ff");text("УРОВЕНЬ "+level+"/3",700,25,16);
+  if(level===3)text("БОСС: "+boss.hp+"/30",700,48,16,"#ff7180");else text("ВРАГОВ: "+enemies.length,700,48,16);
+  gameLoop=requestAnimationFrame(loop);
+ }loop(performance.now());
+}
+
+/* 4. Maze chase */
+function mazeGame(){
+ keySetup();let level=1,cols=21,rows=13,cell=34,map,player,ghosts,gems,score=0,pacAcc=0,ghostAcc=0,last=performance.now(),dir={x:0,y:0},want={x:0,y:0},swipeStart=null;
+ const layouts=[
+ ["#####################","#.........#.........#","#.###.###.#.###.###.#","#o#...#...#...#...#o#","#.#.#.#.#####.#.#.#.#","#...#.#...#...#.#...#","#####.###.#.###.#####","#...#.#...#...#.#...#","#.#.#.#.#####.#.#.#.#","#o#...#...#...#...#o#","#.###.###.#.###.###.#","#.........#.........#","#####################"],
+ ["#####################","#.........#.........#","#.#####.#.#.#.#####.#","#o#...#.#...#.#...#o#","#.#.#.#.#####.#.#.#.#","#...#.#...#...#.#...#","###.###.#.#.#.###.###","#...#...#.#...#...#.#","#.#.#####.#####.#.#.#","#o#.........#.....#o#","#.#####.###.###.#####","#.........#.........#","#####################"],
+ ["#####################","#o........#.........o#","#.###.###.#.###.###.#","#...#.....#.....#...#","#.#.#.#########.#.#.#","#.#...#...#...#...#.#","#.#####.#.#.#.#####.#","#.....#.#...#.#.....#","#.###.#.#####.#.###.#","#o#...#...#...#...#o#","#.#.#####.#.#####.#.#","#.........#.........#","#####################"]
+ ];
+
+ function load(){
+  map=layouts[(level-1)%3].map(r=>r.split(""));
+
+  // Делаем реальные проходы между левой и правой половинами карты.
+  // Центральная стена теперь имеет отверстия сверху и снизу.
+  map[1][10]=".";
+  map[11][10]=".";
+
+  player={x:1,y:1};
+  dir={x:0,y:0};
+  want={x:0,y:0};
+
+  ghosts=[
+   {x:19,y:1,c:"#ff5c78"},
+   {x:19,y:11,c:"#b56cff"},
+   {x:1,y:11,c:"#62e7ff"}
+  ];
+
+  // И обычные точки, и крупные точки "o" становятся собираемыми.
+  gems=[];
+  for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
+   if(map[y][x]==="."||map[y][x]==="o")gems.push({x,y});
+  }
+
+  // Стартовая клетка сразу считается собранной.
+  gems=gems.filter(g=>!(g.x===player.x&&g.y===player.y));
+ }
+
+ load();
+
+ document.getElementById("hint").textContent="Свайпни в сторону — Пак-ман сам идёт до стены. Через центральные проходы можно попасть в другую часть карты.";
+ addControls([["▲","ArrowUp"],["◀","ArrowLeft"],["▼","ArrowDown"],["▶","ArrowRight"]]);
+
+ function can(x,y){
+  return x>=0&&x<cols&&y>=0&&y<rows&&map[y][x]!=="#";
+ }
+
+ function setWant(x,y){want={x,y}}
+
+ window.onkeydown=e=>{
+  let k=e.key.toLowerCase();
+  if(k==="arrowup"||k==="w")setWant(0,-1);
+  if(k==="arrowdown"||k==="s")setWant(0,1);
+  if(k==="arrowleft"||k==="a")setWant(-1,0);
+  if(k==="arrowright"||k==="d")setWant(1,0);
+  if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key))e.preventDefault();
+ };
+
+ canvas.ontouchstart=e=>{
+  let t=e.changedTouches[0];
+  swipeStart={x:t.clientX,y:t.clientY};
+  e.preventDefault();
+ };
+ canvas.ontouchend=e=>{
+  if(!swipeStart)return;
+  let t=e.changedTouches[0],dx=t.clientX-swipeStart.x,dy=t.clientY-swipeStart.y;
+  if(Math.max(Math.abs(dx),Math.abs(dy))>18){
+   if(Math.abs(dx)>Math.abs(dy))setWant(dx>0?1:-1,0);
+   else setWant(0,dy>0?1:-1);
+  }
+  swipeStart=null;
+  e.preventDefault();
+ };
+
+ function collect(){
+  let i=gems.findIndex(g=>g.x===player.x&&g.y===player.y);
+  if(i>=0){
+   gems.splice(i,1);
+   score++;
+  }
+ }
+
+ function movePac(){
+  // Если запрошенный поворот доступен, поворачиваемся.
+  if(can(player.x+want.x,player.y+want.y))dir={x:want.x,y:want.y};
+
+  // Двигаемся непрерывно до стены.
+  if(dir.x||dir.y){
+   if(can(player.x+dir.x,player.y+dir.y)){
+    player.x+=dir.x;
+    player.y+=dir.y;
+    collect();
+   }else{
+    dir={x:0,y:0};
+   }
+  }
+ }
+
+ function moveGhosts(){
+  ghosts.forEach(g=>{
+   let choices=[[1,0],[-1,0],[0,1],[0,-1]].filter(d=>can(g.x+d[0],g.y+d[1]));
+   if(!choices.length)return;
+   let best=choices.slice().sort((a,b)=>
+    ((g.x+a[0]-player.x)**2+(g.y+a[1]-player.y)**2)-
+    ((g.x+b[0]-player.x)**2+(g.y+b[1]-player.y)**2)
+   )[0];
+   let q=Math.random()<.75?best:choices[Math.floor(Math.random()*choices.length)];
+   g.x+=q[0];g.y+=q[1];
+  });
+ }
+
+ function loop(now){
+  let dt=now-last;last=now;
+  pacAcc+=dt;
+  ghostAcc+=dt;
+
+  while(pacAcc>=200){pacAcc-=200;movePac()}
+  while(ghostAcc>=500){ghostAcc-=500;moveGhosts()}
+
+  ctx.fillStyle="#080710";ctx.fillRect(0,0,W,H);
+
+  for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
+   let v=map[y][x];
+   if(v==="#")px(x*cell,y*cell,cell,cell,"#34236a");
+  }
+
+  // Все собираемые точки теперь жёлтые.
+  gems.forEach(g=>{
+   px(g.x*cell+14,g.y*cell+14,6,6,"#ffd84d");
+  });
+
+  ghosts.forEach(g=>{
+   px(g.x*cell+7,g.y*cell+8,20,20,g.c);
+   px(g.x*cell+9,g.y*cell+5,16,6,g.c);
+   px(g.x*cell+10,g.y*cell+13,4,4,"#fff");
+   px(g.x*cell+20,g.y*cell+13,4,4,"#fff");
+  });
+
+  px(player.x*cell+7,player.y*cell+7,20,20,"#ffd84d");
+  px(player.x*cell+12,player.y*cell+12,4,4,"#ff4f9a");
+
+  text("MARMALADE MAZE",18,25,18,"#ffd84d");
+  text("Уровень "+level+"/3",690,25,16);
+  text("Точек: "+score,690,47,16);
+
+  if(ghosts.some(g=>g.x===player.x&&g.y===player.y)){
+   load();
+  }
+
+  if(gems.length===0){
+   if(level<3){
+    level++;
+    load();
+   }else if(!isWon("maze")){
+    showCode(games[3]);
+    return;
+   }
+  }
+
+  gameLoop=requestAnimationFrame(loop);
+ }
+ gameLoop=requestAnimationFrame(loop);
+}
+
+/* 5. Dino runner */
+function dinoGame(){
+ keySetup();let x=120,y=H-90,vy=0,ground=H-70,score=0,speed=6.1,obs=[],spawnAcc=0,dead=false,tableSpawned=false,last=performance.now();
+ document.getElementById("hint").textContent="ПРОБЕЛ / ↑ / тап по экрану — прыжок. Препятствий меньше, скорость ниже.";
+ addControls([["⤒","ArrowUp"],["⤒"," "]]);
+ function jump(){if(y>=ground-42){vy=-16}}
+ window.onkeydown=e=>{if(e.key===" "||e.key==="ArrowUp"||e.key.toLowerCase()==="w"){e.preventDefault();jump()}};
+ canvas.ontouchstart=e=>{e.preventDefault();jump()};
+ function spawn(){obs.push({x:W+20,w:22+Math.random()*24,h:30+Math.random()*45})}
+ function loop(now){let dt=Math.min(40,now-last);last=now;
+   if(!dead){score+=dt/8;speed=6.1+Math.min(2.2,score/3000);vy+=.68;y+=vy;if(y>ground-42){y=ground-42;vy=0}spawnAcc+=dt;if(spawnAcc>=1250){spawnAcc-=1250;spawn()}obs.forEach(o=>o.x-=speed*dt/16.67);obs=obs.filter(o=>o.x>-70);
+    if(obs.some(o=>x+28>o.x&&x<o.x+o.w&&y+38>ground-o.h))dead=true;
+   }
+   ctx.fillStyle="#f2f0df";ctx.fillRect(0,0,W,H);px(0,ground,W,H-ground,"#d4c8a1");
+   for(let i=0;i<40;i++)px((i*73+(performance.now()/20*speed/3))%W,ground+8+(i%3)*5,18,3,"#8b8065");
+   obs.forEach(o=>{px(o.x,ground-o.h,o.w,o.h,"#5e523e");px(o.x+4,ground-o.h-7,7,7,"#5e523e")});
+   px(x,y,27,32,"#4c7b4a");px(x+20,y+7,15,12,"#4c7b4a");px(x+29,y+10,4,4,"#111");px(x+4,y+31,7,12,"#4c7b4a");px(x+19,y+31,7,12,"#4c7b4a");
+   text("DINO × MARMELADE",20,30,18,"#30291e");text("ОЧКИ: "+Math.floor(score).toString().padStart(5,"0"),690,30,18,"#30291e");
+   if(score>=3000&&!tableSpawned&&!isWon("dino")){tableSpawned=true;obs.push({x:W+120,w:130,h:95,table:true})}
+   obs.forEach(o=>{if(o.table){o.x-=speed*dt/33;px(o.x,ground-o.h,130,8,"#8b5a32");px(o.x+12,ground-o.h+8,10,o.h-8,"#8b5a32");px(o.x+108,ground-o.h+8,10,o.h-8,"#8b5a32");px(o.x+30,ground-o.h-25,12,12,"#ff4f9a");px(o.x+48,ground-o.h-25,12,12,"#ffd84d");px(o.x+66,ground-o.h-25,12,12,"#64e58a");text("MARMELADE!",o.x+10,ground-o.h-32,12,"#ff4f9a");if(x+35>o.x&&x<o.x+130&&y+35>ground-o.h){showCode(games[4]);return}}});
+   if(dead){ctx.fillStyle="#0008";ctx.fillRect(0,0,W,H);text("ДИНО ЗАДРЕМАЛ!",315,230,28,"#ff4f9a");text("ПРОБЕЛ / ТАП — ЗАНОВО",300,270,18,"#fff");if(keys[" "]){keys[" "]=false;dinoGame();return}}
+   gameLoop=requestAnimationFrame(loop);
+ }loop(performance.now());
+}
+
+function addControls(arr){
+ const c=document.getElementById("controls");c.innerHTML="";
+ arr.forEach(([label,key])=>{
+   let b=document.createElement("button");b.textContent=label;b.className="alt";b.type="button";
+   b.onpointerdown=e=>{e.preventDefault();keys[key.toLowerCase()]=true;keys[key]=true;if(key===" ")keys[" "]=true};
+   b.onpointerup=b.onpointercancel=b.onpointerleave=e=>{e.preventDefault();keys[key.toLowerCase()]=false;keys[key]=false};
+   c.appendChild(b)
+ })
+}
+renderCards();
+</script>
+</body>
+</html>
